@@ -1,19 +1,21 @@
 # FRC Match Times – Usage Guide
 
-This script connects to the [FRC Events API](https://frc-events.firstinspires.org/services/API)
-and pulls all played matches for a given event, showing:
+This script connects to the [FRC Events API](https://frc-api.firstinspires.org)
+and pulls all matches for a given event, showing:
 
 * **Scheduled Start** – the originally planned start time for the match
 * **Actual Start** – the time the match actually began
 * **Actual End** – the time results were posted (post-result time)
 * **Duration** – elapsed time between actual start and actual end
 
+All three tournament levels are fetched: **Practice**, **Qualification**, and **Playoff**.
+
 ---
 
 ## Prerequisites
 
 * Python 3.10 or later
-* An FRC Events API account – register at <https://frc-events.firstinspires.org/services/API>
+* An FRC Events API account – register at <https://frc-api.firstinspires.org>
 
 ---
 
@@ -84,7 +86,7 @@ python frc_match_times.py --year <YEAR> --event <EVENT_CODE>
 | Argument | Required | Description |
 |---|---|---|
 | `--year` | Yes | Four-digit season year, e.g. `2024` |
-| `--event` | Yes | FRC event code, e.g. `WAELL` |
+| `--event` | Yes | FRC event code, e.g. `TXHOU` |
 | `--username` | No | API username (overrides `FRC_API_USERNAME` env var) |
 | `--token` | No | API token (overrides `FRC_API_TOKEN` env var) |
 
@@ -93,13 +95,13 @@ python frc_match_times.py --year <YEAR> --event <EVENT_CODE>
 Using environment variables (recommended):
 
 ```bash
-python frc_match_times.py --year 2024 --event WAELL
+python frc_match_times.py --year 2024 --event TXHOU
 ```
 
 Passing credentials directly:
 
 ```bash
-python frc_match_times.py --year 2024 --event WAELL \
+python frc_match_times.py --year 2024 --event TXHOU \
     --username myuser --token mytoken
 ```
 
@@ -108,26 +110,27 @@ python frc_match_times.py --year 2024 --event WAELL \
 ## Sample Output
 
 ```
-FRC 2024 Event: WAELL
-Fetching match data for all levels...
-
+FRC 2024 Event: TXHOU
 ============================================================
+
   Practice Matches
-============================================================
-  Match     Scheduled Start      Actual Start         Actual End           Duration
-  --------------------------------------------------------------------------
-  1         2024-03-08 08:00:00  2024-03-08 08:03:12  2024-03-08 08:05:47  2m 35s
-  2         2024-03-08 08:08:00  2024-03-08 08:09:05  2024-03-08 08:11:30  2m 25s
+  -----------------------------------------------------------------------
+  Match  Scheduled Start            Actual Start               Actual End                 Duration
+  -----------------------------------------------------------------------
+  1      2024-03-08 08:00:00 UTC    2024-03-08 08:03:12 UTC    2024-03-08 08:05:47 UTC       2m 35s
 
-============================================================
   Qualification Matches
-============================================================
-  Match     Scheduled Start      Actual Start         Actual End           Duration
-  --------------------------------------------------------------------------
-  1         2024-03-08 09:00:00  2024-03-08 09:01:45  2024-03-08 09:04:10  2m 25s
+  -----------------------------------------------------------------------
+  Match  Scheduled Start            Actual Start               Actual End                 Duration
+  -----------------------------------------------------------------------
+  1      2024-03-08 09:00:00 UTC    2024-03-08 09:01:45 UTC    2024-03-08 09:04:10 UTC       2m 25s
   ...
 
-Total played matches shown: 82
+  Playoff Matches
+  -----------------------------------------------------------------------
+  ...
+
+Total matches shown: 82
 ```
 
 ---
@@ -139,3 +142,4 @@ When finished, deactivate with:
 ```bash
 deactivate
 ```
+

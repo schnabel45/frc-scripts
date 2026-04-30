@@ -2,8 +2,13 @@
 """
 FRC Match Times Script
 
-Pulls all played matches from an FRC event and displays scheduled start time,
-actual start time, actual end time, and the duration between actual start and end.
+Connects to the FRC Events API and pulls match schedule/results for a given
+event, displaying scheduled start time, actual start time, actual end time,
+and the duration between actual start and end for every played match.
+
+Usage:
+    python frc_match_times.py --year 2024 --event TXHOU
+    python frc_match_times.py --year 2024 --event TXHOU --username USER --token TOKEN
 """
 
 import argparse
@@ -12,167 +17,157 @@ import sys
 from datetime import datetime, timezone
 
 import requests
-from requests.auth import HTTPBasicAuth
 
-FRC_API_BASE = "https://frc-events.firstinspires.org/V2.0"
-MATCH_LEVELS = ["Practice", "Qualification", "Playoff"]
-DATE_FORMAT = "%Y-%m-%dT%H:%M:%S"
+BASE_URL = "https://frc-api.firstinspires.org/v3.0"
 
-
-def parse_dt(value: str | None) -> datetime | None:
-    """Parse a datetime string returned by the FRC Events API.
-
-    The API returns ISO-8601-style strings such as:
-      "2024-03-08T09:01:45"   (no timezone)
-      "2024-03-08T09:01:45Z"  (UTC, trailing 'Z')
-      "2024-03-08T09:01:45+00:00"  (UTC, numeric offset)
-    All are converted to a naive datetime in local/API time by stripping the
-    timezone designator before parsing.
-    """
-    if not value:
-        return None
-    # Normalize: remove trailing 'Z', then strip any timezone offset (+HH:MM or -HH:MM)
-    # keeping only the date/time portion before any offset indicator.
-    normalized = value.rstrip("Z")
-    if "T" in normalized:
-        date_part, time_part = normalized.split("T", 1)
-        # Remove offset: find first '+' or '-' after position 0 in the time portion
-        for i, ch in enumerate(time_part):
-            if ch in ("+", "-") and i > 0:
-                time_part = time_part[:i]
-                break
-        normalized = f"{date_part}T{time_part}"
-    for fmt in (DATE_FORMAT, "%Y-%m-%dT%H:%M"):
-        try:
-            return datetime.strptime(normalized, fmt)
-        except ValueError:
-            continue
-    return None
+LEVELS = ["practice", "qual", "playoff"]
+LEVEL_LABELS = {
+    "practice": "Practice",
+    "qual": "Qualification",
+    "playoff": "Playoff",
+}
 
 
-def fmt_dt(dt: datetime | None) -> str:
-    return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "N/A"
-
-
-def fmt_duration(seconds: float | None) -> str:
-    if seconds is None:
-        return "N/A"
-    minutes, secs = divmod(int(seconds), 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours}h {minutes:02d}m {secs:02d}s"
-    return f"{minutes}m {secs:02d}s"
-
-
-def get_matches(session: requests.Session, year: int, event_code: str, level: str) -> list[dict]:
-    """Fetch matches for a given tournament level."""
-    url = f"{FRC_API_BASE}/{year}/matches/{event_code}"
-    params = {"tournamentLevel": level}
-    resp = session.get(url, params=params)
-    if resp.status_code == 404:
-        return []
-    resp.raise_for_status()
-    data = resp.json()
-    return data.get("Matches", [])
-
-
-def display_matches(matches: list[dict], level: str) -> None:
-    """Print a formatted table of match timing information."""
-    played = [m for m in matches if m.get("actualStartTime")]
-    if not played:
-        print(f"\n  No played matches found for {level} level.\n")
-        return
-
-    col_widths = {
-        "match": 10,
-        "scheduled": 21,
-        "actual_start": 21,
-        "actual_end": 21,
-        "duration": 12,
-    }
-    header = (
-        f"  {'Match':<{col_widths['match']}}"
-        f"{'Scheduled Start':<{col_widths['scheduled']}}"
-        f"{'Actual Start':<{col_widths['actual_start']}}"
-        f"{'Actual End':<{col_widths['actual_end']}}"
-        f"{'Duration':<{col_widths['duration']}}"
-    )
-    sep = "  " + "-" * (sum(col_widths.values()))
-
-    print(f"\n{'='*60}")
-    print(f"  {level} Matches")
-    print(f"{'='*60}")
-    print(header)
-    print(sep)
-
-    for match in sorted(played, key=lambda m: m.get("matchNumber", 0)):
-        match_num = match.get("matchNumber", "?")
-        scheduled = parse_dt(match.get("startTime"))
-        actual_start = parse_dt(match.get("actualStartTime"))
-        actual_end = parse_dt(match.get("postResultTime"))
-
-        duration = None
-        if actual_start and actual_end and actual_end >= actual_start:
-            duration = (actual_end - actual_start).total_seconds()
-
-        print(
-            f"  {str(match_num):<{col_widths['match']}}"
-            f"{fmt_dt(scheduled):<{col_widths['scheduled']}}"
-            f"{fmt_dt(actual_start):<{col_widths['actual_start']}}"
-            f"{fmt_dt(actual_end):<{col_widths['actual_end']}}"
-            f"{fmt_duration(duration):<{col_widths['duration']}}"
-        )
-
-    print()
-
-
-def main() -> None:
+def parse_args():
     parser = argparse.ArgumentParser(
-        description="Pull FRC match times from an event and display scheduling information."
+        description="Pull FRC match times from the FRC Events API."
     )
-    parser.add_argument("--year", type=int, required=True, help="Season year (e.g. 2024)")
-    parser.add_argument("--event", required=True, help="Event code (e.g. WAELL)")
+    parser.add_argument(
+        "--year",
+        required=True,
+        type=int,
+        help="Season year (e.g. 2024)",
+    )
+    parser.add_argument(
+        "--event",
+        required=True,
+        type=str,
+        help="Event code (e.g. TXHOU)",
+    )
     parser.add_argument(
         "--username",
-        default=os.environ.get("FRC_API_USERNAME"),
-        help="FRC Events API username (or set FRC_API_USERNAME env var)",
+        default=os.environ.get("FRC_API_USERNAME", ""),
+        help="FRC API username (or set FRC_API_USERNAME env var)",
     )
     parser.add_argument(
         "--token",
-        default=os.environ.get("FRC_API_TOKEN"),
-        help="FRC Events API token (or set FRC_API_TOKEN env var)",
+        default=os.environ.get("FRC_API_TOKEN", ""),
+        help="FRC API authorization token (or set FRC_API_TOKEN env var)",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    if not args.username or not args.token:
+
+def get_session(username: str, token: str) -> requests.Session:
+    session = requests.Session()
+    if username and token:
+        session.auth = (username, token)
+    session.headers.update({"Accept": "application/json"})
+    return session
+
+
+def fetch_matches(session: requests.Session, year: int, event: str, level: str) -> list:
+    """Fetch match results for one tournament level."""
+    url = f"{BASE_URL}/{year}/matches/{event}"
+    params = {"tournamentLevel": level}
+    response = session.get(url, params=params)
+    if response.status_code == 401:
         print(
-            "Error: FRC API credentials are required.\n"
-            "Set FRC_API_USERNAME and FRC_API_TOKEN environment variables, "
-            "or pass --username and --token arguments.",
+            "ERROR: Unauthorized. Provide valid --username and --token "
+            "(or set FRC_API_USERNAME / FRC_API_TOKEN environment variables).",
             file=sys.stderr,
         )
         sys.exit(1)
+    if response.status_code == 404:
+        # Event or level not found – return empty list gracefully
+        return []
+    response.raise_for_status()
+    data = response.json()
+    return data.get("Matches", [])
 
-    session = requests.Session()
-    session.auth = HTTPBasicAuth(args.username, args.token)
-    session.headers.update({"Accept": "application/json"})
+
+def parse_dt(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 datetime string returned by the FRC API."""
+    if not value:
+        return None
+    # The API returns strings like "2024-03-08T09:00:00" (no timezone marker)
+    # or "2024-03-08T09:00:00Z". Normalize both forms.
+    value = value.rstrip("Z")
+    try:
+        return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def format_dt(dt: datetime | None) -> str:
+    if dt is None:
+        return "N/A"
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "N/A"
+    minutes, secs = divmod(int(seconds), 60)
+    return f"{minutes}m {secs:02d}s"
+
+
+def display_matches(matches: list, level_label: str) -> None:
+    if not matches:
+        print(f"  No matches found for {level_label}.\n")
+        return
+
+    col_w = [6, 26, 26, 26, 14]
+    header = (
+        f"{'Match':<{col_w[0]}} "
+        f"{'Scheduled Start':<{col_w[1]}} "
+        f"{'Actual Start':<{col_w[2]}} "
+        f"{'Actual End':<{col_w[3]}} "
+        f"{'Duration':>{col_w[4]}}"
+    )
+    separator = "-" * len(header)
+
+    print(f"\n  {level_label} Matches")
+    print(f"  {separator}")
+    print(f"  {header}")
+    print(f"  {separator}")
+
+    for match in matches:
+        match_number = match.get("matchNumber", "?")
+        scheduled_start = parse_dt(match.get("startTime"))
+        actual_start = parse_dt(match.get("actualStartTime"))
+        actual_end = parse_dt(match.get("postResultTime"))
+
+        duration: float | None = None
+        if actual_start and actual_end:
+            delta = actual_end - actual_start
+            duration = delta.total_seconds()
+
+        row = (
+            f"{str(match_number):<{col_w[0]}} "
+            f"{format_dt(scheduled_start):<{col_w[1]}} "
+            f"{format_dt(actual_start):<{col_w[2]}} "
+            f"{format_dt(actual_end):<{col_w[3]}} "
+            f"{format_duration(duration):>{col_w[4]}}"
+        )
+        print(f"  {row}")
+
+    print(f"  {separator}\n")
+
+
+def main():
+    args = parse_args()
+    session = get_session(args.username, args.token)
 
     print(f"\nFRC {args.year} Event: {args.event.upper()}")
-    print(f"Fetching match data for all levels...")
+    print("=" * 60)
 
-    total_played = 0
-    for level in MATCH_LEVELS:
-        try:
-            matches = get_matches(session, args.year, args.event.upper(), level)
-        except requests.HTTPError as exc:
-            print(f"  Warning: could not fetch {level} matches: {exc}", file=sys.stderr)
-            continue
+    total_matches = 0
+    for level in LEVELS:
+        matches = fetch_matches(session, args.year, args.event.upper(), level)
+        total_matches += len(matches)
+        display_matches(matches, LEVEL_LABELS[level])
 
-        played = [m for m in matches if m.get("actualStartTime")]
-        total_played += len(played)
-        display_matches(matches, level)
-
-    print(f"Total played matches shown: {total_played}\n")
+    print(f"Total matches shown: {total_matches}\n")
 
 
 if __name__ == "__main__":
