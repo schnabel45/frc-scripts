@@ -19,6 +19,10 @@ import sys
 from datetime import datetime, timezone
 
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 BASE_URL = "https://frc-api.firstinspires.org/v3.0"
 
@@ -81,6 +85,10 @@ def fetch_matches(session: requests.Session, year: int, event: str, level: str) 
         sys.exit(1)
     if response.status_code == 404:
         # Event or level not found – return empty list gracefully
+        return []
+    if response.status_code == 400:
+        # Bad request - likely an invalid tournament level for this event
+        # Skip this level gracefully
         return []
     response.raise_for_status()
     data = response.json()
