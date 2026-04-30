@@ -20,8 +20,9 @@ import requests
 
 BASE_URL = "https://frc-api.firstinspires.org/v3.0"
 
-LEVELS = ["qual", "playoff"]
+LEVELS = ["practice", "qual", "playoff"]
 LEVEL_LABELS = {
+    "practice": "Practice",
     "qual": "Qualification",
     "playoff": "Playoff",
 }
@@ -160,9 +161,13 @@ def main():
     print(f"\nFRC {args.year} Event: {args.event.upper()}")
     print("=" * 60)
 
+    total_matches = 0
     for level in LEVELS:
         matches = fetch_matches(session, args.year, args.event.upper(), level)
+        total_matches += len(matches)
         display_matches(matches, LEVEL_LABELS[level])
+
+    print(f"Total matches shown: {total_matches}\n")
 
 
 if __name__ == "__main__":
