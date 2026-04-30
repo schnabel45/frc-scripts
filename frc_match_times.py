@@ -11,6 +11,8 @@ Usage:
     python frc_match_times.py --year 2024 --event TXHOU --username USER --token TOKEN
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import sys
